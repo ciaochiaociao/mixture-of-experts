@@ -2,19 +2,15 @@
 
 Authors: Ding Zhang, Yuchen Wang, Chiao-Wei Hsu, and Yufeng Zou 
 
-## 
-
 ## MoE Introduction
 
-## Outline:
+<!-- ## Outline:
 1. History: 
     1. Introduction: Experts as Components, Conditional Computation
     3. Models:
         1. GShard (yf)
         2. Switch (yf)
         3. Mistral
-
-Mistral:
 2. Architectural differences between the vanilla Transformer and Mistral (zd)
 3. Sliding Window Attention (zd)
 4. KV-Cache (yuchen)
@@ -22,12 +18,11 @@ Mistral:
 6. Model Sharding / Expert Parallelism (yuchen)
 7. Stabilizing training with router Z-loss (Chiao)
 8. Capacity Factor and Communication costs (Chiao)
-
-9. Understanding the Mistral model's code
-
+ -->
 ## Switch Transformers
 
-The [Switch Transformer](https://arxiv.org/abs/2101.03961) model, published by Google in 2022, uses a sparse [T5](https://en.wikipedia.org/wiki/T5_(language_model)) encoder-decoder architecture, where the MLP are replaced by a Mixture of Experts (MoE). A routing mechanism (top 1 in this case) associates each token to one of the expert, where each expert is a dense MLP. While switch transformers have a lot more weights than their equivalent dense models, the sparsity allows better scaling and better finetuning performance at scale. During a forward pass, only a fraction of the weights are used. The routing mechanism allows the model to select relevant weights on the fly which increases the model capacity without increasing the number of operations. The largest version contains 1.6T parameters with 2048 experts, while the base version contains <7B parameters.
+The [Switch Transformer](https://arxiv.org/abs/2101.03961) model, published by Google in 2022, uses a sparse [T5](https://en.wikipedia.org/wiki/T5_(language_model)) encoder-decoder architecture, where the MLP are replaced by a Mixture of Experts (MoE). A routing mechanism (top 1 in this case) associates each token to one of the expert, where each expert is a dense MLP. While switch transformers have a lot more weights than their equivalent dense models, the sparsity allows better scaling and better finetuning performance at scale. During a forward pass, only a fraction of the weights are used. The routing mechanism allows the model to select relevant weights on the fly which increases the model capacity without increasing the number of operations. The large version contains 1.6T parameters with 2048 experts, while the base version contains <7B parameters. Experiments show that Switch Transformers have significant speedup in pretraing over T5 counterparts and achieve better performance on downstream tasks.
+
 
 There are several important aspects of this work:
 
@@ -44,7 +39,7 @@ There are several important aspects of this work:
 
 **Parallel computation**&ensp;Data, model, and expert parallelism will be  explained in a future section of this blog.
 
-performance ...
+
 
 ## Mistral and Mixtral
 **Mistral**, or more formally, **Mistral-7B**, was first introduced in this [blogpost](https://mistral.ai/news/announcing-mistral-7b/) by Albert Jiang, et al. The model is open-source, and it is also the first large language model (LLM) released by the company, [mistral.ai](https://mistral.ai/). 
@@ -67,11 +62,18 @@ In the next few sections of this blog, we will provide a detailed explanation on
 Recall that the success of transformers is highly dependent on the self-attention mechanism. However, the nature of the Transformer architecture suffers from the maximum limitation of input size to 512 tokens. The input tokens are used as "keys" in the self-attention layers, which are the sequence representations, and "queries" that can attend to these keys, thus attends to itself. For example, let's assume a 5-token input sequence; for each token in the input sequence to be able to attend all keys (fully connected), this requires a quadratic $O(n^2)$ memory complexity per attention layer. This type of attention layer is known as the full attention or quadratic attention layer. A good way of thinking this is to represent the layer connectivity as an n\*n matrix. The memory requirment for this attention layer is the number of rows (n) times the number of columns (n), which is indeed $O(n^2)$. Thus, when the attention layer receives a large input sequence, the quadratic complexity makes it significantly inefficient for the transformer model computations. In some cases, the output may depend on long-distance attention between the document tokens (a word in the first chapter has been referenced in the fifth chapter, for example). Such long attention is not achievable in BERT-like models. 
 
 ### Sliding Window Attention
-Sliding window attention is an attention pattern for attention-based models. It is first being purposed in the [LongFormer's paper](https://arxiv.org/abs/2004.05150v2) as an attention mechanism. The mechanism tries to overcome the issue of limited input sequence length in aforementioned classical transformer models like BERT, by suggesting a convolution-like architecture for the attention mechanism. It defines a window of width $W$, such that the query node 
+Sliding window attention is an attention pattern for attention-based models. It is first being purposed in the [LongFormer's paper](https://arxiv.org/abs/2004.05150v2) as an attention mechanism. The mechanism tries to overcome the issue of limited input sequence length in aforementioned classical transformer models like BERT, by suggesting a convolution-like architecture for the attention mechanism. It defines a window of size $W$, such that the query node is allowed to attend only to $W$ of its neighbours inside the window. In the figure below, we show an attention window of size 3, where the highlighted node in green is allowed to attend to the peer key (middle node) and its immediate neighbours on the left and on the right. 
+
+
+![Screenshot 2024-04-24 141713](https://hackmd.io/_uploads/H1yR9R8ZA.png)
+
+The key assumption behind sliding window attention is that the most important information to the word is its local neighbours, with size $k$. This results in a memory complexity reduction to $O(nW)$, which is significantly efficient for $W << n$. 
+
+However, one may be wondering that: didn't apply this sliding window attention losing information from key nodes outside the window size $W$? How would the sliding window problem solves the afore-mentioned problem when two words are far apart with each other in the chapters but still have unnegligble relationships? Well, if you look at the level of a single attention layer you may think so. But, when we stack multiple attention layers together, at higher layers, the query node gains attention information from far neighbors but in different representation way. The idea is very similar to the **receptive field** in CNN. In the level of a single attention layer, the key nodes sitting outside the window size of $W$ are discarded. But as we move on to the next layer, each node contains aggregated information of the nodes propagated from the previous layer. Thus, we end up with a conical structure for each token’s attention, starting with the local attentive nodes to their $W$ neighbors, but at higher layers, the attention gains information from tokens far away from it (global attention).
+![1_lWBOpmmaXoPkqch3ToMA2g](https://hackmd.io/_uploads/ryWtZyDbR.gif)
 
 Please refer to this [blog](https://ahelhady.medium.com/understanding-longformers-sliding-window-attention-mechanism-f5d61048a907) for more details.
 
-## Grouped Query Attention
 
 ## KV-Cache
 In this section, we are going to explain what is a KV-Cache. Here, K stands for key value and V stands for V value. So KV cache is a key-value chaching systems. data is stored in the from of key-value pairs where each key is unique and maps to a pecific value. When a key-value pair is cached, the key acts as an identifier that is used to quickly retrieve the corresponding value from the cache, without needing to compute the value again or retrieve it from a slower data storage. 
@@ -171,9 +173,7 @@ As mentioned before, at its core, an MoE model consists of two primary component
 
 ### Training Expert Networks
 
-The training of expert networks follows a standard deep learning approach, typically involving backpropagation and gradient descent methods. Each expert is independently trained on designated data subsets, allowing it to develop a unique specialization. This process ensures that when the model encounters a specific type of input, it can leverage the expertise of the most qualified sub-network. A common training loss for such purpose is the cross-entropy loss, which measures the difference between the predicted and actual output probabilities. The mathematical formulation of the loss function is shown below:
-
-...
+The training of expert networks follows a standard deep learning approach, typically involving backpropagation and gradient descent methods. Each expert is independently trained on designated data subsets, allowing it to develop a unique specialization. This process ensures that when the model encounters a specific type of input, it can leverage the expertise of the most qualified sub-network. A common training loss for such purpose is the cross-entropy loss, which measures the difference between the predicted and actual output probabilities.
 
 The code snippet below illustrates the implementation of the cross-entropy loss function in PyTorch:
 
@@ -219,12 +219,15 @@ The gating network's training is crucial as it determines the efficiency of the 
 
 One of the challenges in training MoEs is balancing the load among experts. This involves ensuring that no single expert becomes a bottleneck, which could lead to inefficiencies. Additionally, scaling the number of experts impacts pretraining, as it requires careful consideration of the model's capacity and the computational resources available. The goal is to achieve a balance where the model scales effectively without compromising performance.
 
+This target of load balancing presents itself as an auxiliary loss that is added to the loss introduced above. There are multiple lines of work implementing different variants. Essentially, most of them involve reducing the variance (e.g., by minimizing the coefficient of variance, CV) of the probability of the activation of each experts. Furthermore, specialized loss functions and regularization techniques play a crucial role in enhancing the training process of Mixture of Experts (MoE) models. Below introduce one notable technique - Z-loss function.
+
 ### Specialized Loss Functions and Regularization
 
 To enhance the training process, specialized loss functions and regularization techniques are employed. For instance, the router Z-loss function (ST-MoEs) helps distribute the workload evenly among experts, preventing the "rich-get-richer" phenomenon. This loss function can be weighted to adjust its impact on expert utilization, ensuring a fair distribution of tasks. Regularization techniques, such as dropout or L2 regularization, are also used to prevent overfitting and improve the generalization of the MoE model.
 
 <!-- include the z-loss.png from paper-->
-![Router Z-loss](z-loss.png)
+![z-loss](https://hackmd.io/_uploads/rk27wCI-0.png)
+
 
 Below is a simplified example of how the router Z-loss function can be implemented in PyTorch:
 
@@ -278,13 +281,14 @@ Note how the router Z-loss function has a form of L2 regularization, but differe
 
 Fine-tuning MoEs presents its own set of challenges. It involves adjusting the pretrained model to perform well on specific tasks or datasets. Recent advancements, such as MoE instruction-tuning, show promise in addressing these challenges, allowing MoEs to maintain their efficiency and effectiveness during the fine-tuning stage.
 
-## Capacity Factor and Communication costs (Chiao)
+### Capacity Factor and Communication costs
 
 The capacity factor is a critical parameter in MoE models that determines the maximum number of tokens that can be processed by an expert. By setting an appropriate capacity factor, the model can balance the computational load across experts, preventing bottlenecks and ensuring efficient resource utilization. This section delves into the concept of the capacity factor and its impact on communication costs in MoE models.
 
 The capacity factor in MoE models represents the maximum number of tokens that an expert can process effectively. The definition of the capacity factor is shown below
 
-![capacity.png](capacity.png)
+![capacity](https://hackmd.io/_uploads/HJYNvRLb0.png)
+
 
 A capacity factor greater than 1.0 creates additional buffer to accommodate for when to-
 kens are not perfectly balanced across experts. If too many tokens are routed to an expert
@@ -293,3 +297,14 @@ tion is passed directly to the next layer through the residual connection. Incre
 expert capacity is not without drawbacks, however, since high values will result in wasted
 computation and memory.
 
+
+## Sparsity in MoEs
+What do we mean "Sparsity" in MoE models like Mixtral 8x7B? Sparsity uses the idea of conditional computation, where in dense models all the parameters are used for the inputs, sparsity allows only specific parts of the network to be activated for each input. This set up allows one to scale up the size of the model without increasing the computation costs. 
+
+How do we choose which experts to use? Well, in the Mixtral paper, a learned gating network $G$ decides which experts $E$ to process the input:
+$$
+y = \sum_{i=1}^{n} G(x)_i E_i(x), \text{where } G_\sigma(x) = \text{Softmax}(x \cdot W_g)
+$$
+This is a weighted multiplication, and all experts are run for all the inputs. If $G$ equals to 0, then we don't need to compute the respective expert operations and save computation time. 
+
+## Conclusions
