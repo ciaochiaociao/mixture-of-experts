@@ -4,7 +4,7 @@ Authors: Ding Zhang, Yuchen Wang, Chiao-Wei Hsu, and Yufeng Zou
 
 ## MoE Introduction
 
-Mixture of Experts (MoE) is a neural network architecture that combines multiple expert networks to solve complex problems. Each expert is trained on a specific subset of the data, allowing the model to leverage specialized knowledge for different aspects of the task. A gating network determines which expert to activate based on the input data, ensuring that the most appropriate expert handles each input. MoE models have shown promise in various domains, including natural language processing, computer vision, and reinforcement learning. This blog post explores the notable pieces of work, architecture, and training methodologies of MoE models, highlighting their potential for improving model performance and efficiency.
+Mixture of Experts (MoE) is a neural network architecture that combines multiple expert networks to solve complex problems. Each expert is trained to leverage specialized knowledge for different aspects of the task. A gating network determines which expert to activate based on the input data, ensuring that the most appropriate expert handles each input. MoE models have shown promise in various domains, including natural language processing, computer vision, and reinforcement learning. This blog post explores the notable pieces of work, architecture, and training methodologies of MoE models, highlighting their potential for improving model performance and efficiency.
 
 <!-- ## Outline:
 1. History: 
@@ -62,12 +62,37 @@ The company then takes one step further, introducing **Mixtral 8x7B**, which is 
 
 In the next few sections of this blog, we will provide a detailed explanation on the components of the MoE architecture, and the reasons behind these designs. Both Mistral and Mixtral models are open-source, available for download on HuggingFace. 
 
+## Sparsity in MoEs
+
+**Sparsity?**
+
+What do we mean "Sparsity" in MoE models like Mixtral 8x7B? Sparsity uses the idea of conditional computation, where in dense models all the parameters are used for the inputs, sparsity allows only specific parts of the network to be activated for each input. This set up allows one to scale up the size of the model without increasing the computation costs. 
+
+How do we choose which experts to use? Well, in the Mixtral paper, a learned gating network $G$ decides which experts $E$ to process the input:
+$$
+y = \sum_{i=1}^{n} G(x)_i E_i(x), \text{ where } G_\sigma(x) := \text{Softmax}(\text{TopK}(x \cdot W_g))
+$$
+Here, $G(x)_i$ denotes the $n$ dimensional output of the gating network for the $i$-th expert, and the $E_i(x)$ is the output for the $i$-th expert. This is a weighted multiplication, and all experts are run for all the inputs. If $G$ equals to 0, then we don't need to compute the respective expert operations and save computation time. The gating function used in the Mixtral paper is a softmax, and it takes in the top-K logits of a linear layer:
+$$
+\text{TopK}(v, k)_i = 
+\begin{cases} 
+v_i & \text{if } v_i \text{ is in the top } k \text{ elements of } v, \\
+-\infty & \text{otherwise}.
+\end{cases}
+$$
+
+**Top-K experts in gating**
+
+Having a lower $k$ number (e.g. $k=2$ in Mixtral 8x7B), this kind of routing ensures that the computational cost is controlled because only a small subset of the experts are activated for each input, which makes the model more efficient during both training and inference times compared to dense models where all parameters are always active. Why don't we just choose the top performing expert (i.e. $k=1$) instead of choosing two experts? It is likely chosen as a balance between model complexity and computational efficiency. The use of Top-2 routing in MoE allows for a sparse activation pattern where only the top two experts (in terms of gating network output) are utilized for a given input. This offers a trade-off that allows for more diversity and expert utilization than Top-1 routing, potentially increasing the representational capacity of the model without the full computational load that would come from activating all experts or a larger number of them. In practical applications, such as improving large language models (LLMs), Top-k routing with k=2 is used to merge domain-specific expert models that have been trained separately on specialized data sets into a single model that can utilize the specialized knowledge of each expert where applicable. This means that for any given input, the two most relevant experts are utilized, allowing the model to leverage specialized knowledge without overwhelming computational costs.
+
 
 ## Sliding Window Attention
-### Problem with long input tokens
+**Problem with long input tokens**
+
 Recall that the success of transformers is highly dependent on the self-attention mechanism. However, the nature of the Transformer architecture suffers from the maximum limitation of input size to 512 tokens. The input tokens are used as "keys" in the self-attention layers, which are the sequence representations, and "queries" that can attend to these keys, thus attends to itself. For example, let's assume a 5-token input sequence; for each token in the input sequence to be able to attend all keys (fully connected), this requires a quadratic $O(n^2)$ memory complexity per attention layer. This type of attention layer is known as the full attention or quadratic attention layer. A good way of thinking this is to represent the layer connectivity as an n\*n matrix. The memory requirment for this attention layer is the number of rows (n) times the number of columns (n), which is indeed $O(n^2)$. Thus, when the attention layer receives a large input sequence, the quadratic complexity makes it significantly inefficient for the transformer model computations. In some cases, the output may depend on long-distance attention between the document tokens (a word in the first chapter has been referenced in the fifth chapter, for example). Such long attention is not achievable in BERT-like models. 
 
-### Sliding Window Attention
+**Sliding Window Attention**
+
 Sliding window attention is an attention pattern for attention-based models. It is first being purposed in the [LongFormer's paper](https://arxiv.org/abs/2004.05150v2) as an attention mechanism. The mechanism tries to overcome the issue of limited input sequence length in aforementioned classical transformer models like BERT, by suggesting a convolution-like architecture for the attention mechanism. It defines a window of size $W$, such that the query node is allowed to attend only to $W$ of its neighbours inside the window. In the figure below, we show an attention window of size 3, where the highlighted node in green is allowed to attend to the peer key (middle node) and its immediate neighbours on the left and on the right. 
 
 
@@ -304,14 +329,6 @@ expert capacity is not without drawbacks, however, since high values will result
 computation and memory.
 
 
-## Sparsity in MoEs
-What do we mean "Sparsity" in MoE models like Mixtral 8x7B? Sparsity uses the idea of conditional computation, where in dense models all the parameters are used for the inputs, sparsity allows only specific parts of the network to be activated for each input. This set up allows one to scale up the size of the model without increasing the computation costs. 
-
-How do we choose which experts to use? Well, in the Mixtral paper, a learned gating network $G$ decides which experts $E$ to process the input:
-$$
-y = \sum_{i=1}^{n} G(x)_i E_i(x), \text{where } G_\sigma(x) = \text{Softmax}(x \cdot W_g)
-$$
-This is a weighted multiplication, and all experts are run for all the inputs. If $G$ equals to 0, then we don't need to compute the respective expert operations and save computation time. 
 
 ## Future Work
 The future of MoE models is promising, with ongoing research focusing on enhancing their performance and efficiency. Some key areas of interest include:
