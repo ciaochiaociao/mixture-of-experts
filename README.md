@@ -4,10 +4,12 @@ Authors: Ding Zhang, Yuchen Wang, Chiao-Wei Hsu, and Yufeng Zou
 
 ## MoE Introduction
 
+Mixture of Experts (MoE) is a neural network architecture that combines multiple expert networks to solve complex problems. Each expert is trained on a specific subset of the data, allowing the model to leverage specialized knowledge for different aspects of the task. A gating network determines which expert to activate based on the input data, ensuring that the most appropriate expert handles each input. MoE models have shown promise in various domains, including natural language processing, computer vision, and reinforcement learning. This blog post explores the notable pieces of work, architecture, and training methodologies of MoE models, highlighting their potential for improving model performance and efficiency.
+
 <!-- ## Outline:
 1. History: 
     1. Introduction: Experts as Components, Conditional Computation
-    3. Models:
+    2. Models:
         1. GShard (yf)
         2. Switch (yf)
         3. Mistral
@@ -19,6 +21,10 @@ Authors: Ding Zhang, Yuchen Wang, Chiao-Wei Hsu, and Yufeng Zou
 7. Stabilizing training with router Z-loss (Chiao)
 8. Capacity Factor and Communication costs (Chiao)
  -->
+## Outline
+
+First, we will discuss the architecture of MoE models, with a focus on one notable model, Switch Transformers. Next, we will delve into Mixtral models by MistralAI, exploring their unique features and design choices. We will also cover key concepts such as sliding window attention, KV-cache, and model sharding, which are essential components of MoE models. Finally, we will discuss training methodologies for MoE models, including specialized loss functions, regularization techniques, and fine-tuning strategies. By examining these aspects of MoE models, we aim to provide a comprehensive overview of this innovative neural network architecture and its potential applications in machine learning.
+
 ## Switch Transformers
 
 The [Switch Transformer](https://arxiv.org/abs/2101.03961) model, published by Google in 2022, uses a sparse [T5](https://en.wikipedia.org/wiki/T5_(language_model)) encoder-decoder architecture, where the MLP are replaced by a Mixture of Experts (MoE). A routing mechanism (top 1 in this case) associates each token to one of the expert, where each expert is a dense MLP. While switch transformers have a lot more weights than their equivalent dense models, the sparsity allows better scaling and better finetuning performance at scale. During a forward pass, only a fraction of the weights are used. The routing mechanism allows the model to select relevant weights on the fly which increases the model capacity without increasing the number of operations. The large version contains 1.6T parameters with 2048 experts, while the base version contains <7B parameters. Experiments show that Switch Transformers have significant speedup in pretraing over T5 counterparts and achieve better performance on downstream tasks.
@@ -307,4 +313,17 @@ y = \sum_{i=1}^{n} G(x)_i E_i(x), \text{where } G_\sigma(x) = \text{Softmax}(x \
 $$
 This is a weighted multiplication, and all experts are run for all the inputs. If $G$ equals to 0, then we don't need to compute the respective expert operations and save computation time. 
 
+## Future Work
+The future of MoE models is promising, with ongoing research focusing on enhancing their performance and efficiency. Some key areas of interest include:
+
+1. **Scalability**: Developing techniques to scale MoE models to handle even larger datasets and more complex tasks.
+2. **Interpretability**: Improving the interpretability of MoE models to understand how decisions are made by the experts and the gating network.
+3. **Quantization**: Exploring quantization techniques to reduce the memory and computational requirements of MoE models while maintaining performance.
+4. **Transfer Learning**: Investigating transfer learning methods to leverage pretrained MoE models for a wide range of tasks and domains.
+5. **Efficient Training**: Developing efficient training methodologies for MoE models to reduce training time and resource consumption.
+
+By addressing these challenges and opportunities, researchers and practitioners can unlock the full potential of MoE models and leverage their capabilities to solve a wide range of machine learning tasks.
+
 ## Conclusions
+
+Mixture of Experts (MoE) models represent a significant advancement in neural network architecture, offering a powerful approach to handling complex tasks. By combining multiple expert networks with a gating mechanism, MoE models can leverage specialized knowledge and improve performance. The architecture and training methodologies of MoE models have been refined over time, leading to notable advancements in natural language processing, computer vision, and other domains. As MoE models continue to evolve, they hold great promise for enhancing model efficiency, scalability, and interpretability, making them a valuable tool for machine learning practitioners.
